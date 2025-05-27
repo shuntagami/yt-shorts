@@ -1,52 +1,75 @@
-// ts-node でそのまま動くサンプル
+/**
+ * 例:  npx ts-node src/shorts.ts "心理テスト"
+ *      (ビルド後)  node dist/shorts.js "心理テスト"
+ */
+import "dotenv/config";
 import { google } from "googleapis";
-import dotenv from "dotenv";
+import { writeFileSync } from "fs";
+import { format } from "date-fns";
 
-dotenv.config();
-const API_KEY = process.env.YT_API_KEY!;
-const KEYWORD = "コミュニケーション"; // 検索ワード
-const PAGE_SIZE = 25; // 1 ページ最大 50
+const KEYWORD =
+  process.argv[2] ??
+  (() => {
+    console.error("❌ キーワードを引数にください");
+    process.exit(1);
+  })();
+const youtube = google.youtube({ version: "v3", auth: process.env.YT_API_KEY });
 
-async function fetchShorts() {
-  const youtube = google.youtube({ version: "v3", auth: API_KEY });
+/** ISO 文字列 → YYYY-MM-DD HH:mm */
+const jp = (iso?: string) =>
+  iso ? format(new Date(iso), "yyyy-MM-dd HH:mm") : "";
 
-  // 1) キーワード検索（再生数順 & short）
-  const searchRes = await youtube.search.list({
-    part: ["id", "snippet"],
+async function run() {
+  // search.list
+  const ONE_YEAR_AGO = new Date(
+    Date.now() - 365 * 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  const search = await youtube.search.list({
+    part: ["id"],
     q: KEYWORD,
     type: ["video"],
     order: "viewCount",
-    videoDuration: "short", // 4分未満
-    maxResults: PAGE_SIZE,
+    videoDuration: "short",
+    maxResults: 100,
+    publishedAfter: ONE_YEAR_AGO,
   });
 
-  // 2) Shorts らしさを追加判定（<=60 秒）
-  const ids = searchRes.data.items?.map((i) => i.id!.videoId!) ?? [];
-  const vids = await youtube.videos.list({
-    part: ["contentDetails", "statistics", "snippet"],
+  const ids = (search.data.items ?? [])
+    .map((i) => i.id?.videoId!)
+    .filter(Boolean);
+
+  // videos.list
+  const videos = await youtube.videos.list({
+    part: ["snippet", "statistics", "contentDetails"],
     id: ids,
   });
 
-  const shortsOnly =
-    vids.data.items?.filter((v) => {
-      const durISO = v.contentDetails?.duration!; // e.g. PT45S
-      const seconds =
-        durISO
-          .match(/\d+/g)
-          ?.reduce(
-            (s, n, i, arr) => s + +n * [3600, 60, 1].slice(-arr.length)[i],
-            0
-          ) ?? 0;
+  const rows = (videos.data.items ?? [])
+    .filter((v) =>
+      /^PT(\d+S|[0-5]?\dS)$/.test(v.contentDetails?.duration ?? "")
+    ) // ≤60s
+    .map((v) => ({
+      title: (v.snippet?.title ?? "").replace(/"/g, '""'),
+      views: v.statistics?.viewCount ?? "0",
+      published: jp(v.snippet?.publishedAt),
+      link: `https://youtube.com/shorts/${v.id}`,
+    }));
 
-      return seconds <= 60; // 60秒以下
-    }) ?? [];
+  const csv = [
+    "Title,Views,Published,Link",
+    ...rows.map((r) => `"${r.title}",${r.views},${r.published},"${r.link}"`),
+  ].join("\n");
 
-  // 3) 出力
-  shortsOnly.forEach((v) => {
-    console.log(
-      `${v.snippet?.title} | ${v.statistics?.viewCount} views | https://youtube.com/shorts/${v.id}`
-    );
-  });
+  const stamp = format(new Date(), "yyyyMMdd_HHmmss");
+  const safe = KEYWORD.replace(/[\\/:*?"<>| ]+/g, "_");
+  const filename = `${safe}_${stamp}.csv`;
+
+  writeFileSync(filename, csv, "utf8");
+  console.log(`✅  Saved → ${filename}`);
 }
 
-fetchShorts().catch(console.error);
+run().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
