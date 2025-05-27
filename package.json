@@ -1,0 +1,23 @@
+{
+  "name": "hello-typescript",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node ./dist/index.js",
+    "format": "prettier --write src",
+    "lint": "eslint 'src/**/*.{js,jsx,ts,tsx}' && prettier --check src",
+    "prebuild": "rm -rf dist",
+    "build": "esbuild src/index.ts --bundle --minify --sourcemap --platform=node --target=es2020 --outfile=dist/index.js"
+  },
+  "author": "shuntagami",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "esbuild": "^0.25.5",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "googleapis": "^149.0.0"
+  }
+}
