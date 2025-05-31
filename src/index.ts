@@ -1,15 +1,28 @@
 /**
- * 例:  npx ts-node src/shorts.ts "心理テスト"
- *      (ビルド後)  node dist/shorts.js "心理テスト"
- *      キーワードなし: npx ts-node src/shorts.ts
+ * Fetches YouTube Shorts data for a predefined list of keywords and periods,
+ * saving the results to CSV files.
  */
 import "dotenv/config";
 import { google } from "googleapis";
 import { writeFileSync } from "fs";
 import { format } from "date-fns";
 
-const KEYWORD = process.argv[2];
-const DAYS_AGO_ARG = process.argv[3];
+const KEYWORDS_TO_PROCESS = [
+  "THE FINALS",
+  "ザ･ファイナルズ",
+  "Fortnite",
+  "フォートナイト",
+  "PUBG: BATTLEGROUNDS",
+  "PUBG",
+  "Battlefield 2042",
+  "バトルフィールド",
+  "Call of Duty",
+  "Marvel Rivals",
+  "マーベル・ライバルズ",
+  "Counter-Strike 2",
+];
+const PERIODS_IN_DAYS = [1095, 365, 90];
+
 const youtube = google.youtube({
   version: "v3",
   auth: process.env["YT_API_KEY"],
@@ -19,22 +32,19 @@ const youtube = google.youtube({
 const jp = (iso?: string) =>
   iso ? format(new Date(iso), "yyyy-MM-dd HH:mm") : "";
 
-async function run() {
+async function run(keyword: string, periodDays: number) {
   // search.list
-  const daysAgo = DAYS_AGO_ARG ? parseInt(DAYS_AGO_ARG, 10) : NaN;
-  const numberOfDays = !isNaN(daysAgo) && daysAgo > 0 ? daysAgo : 365;
-
   const publishedAfterDate = new Date(
-    Date.now() - numberOfDays * 24 * 60 * 60 * 1000
+    Date.now() - periodDays * 24 * 60 * 60 * 1000
   ).toISOString();
 
   const search = await youtube.search.list({
     part: ["id"],
-    q: KEYWORD || undefined, // キーワードがない場合はundefinedにして全体から検索
+    q: keyword,
     type: ["video"],
     order: "viewCount",
     videoDuration: "short",
-    maxResults: 25,
+    maxResults: 50,
     publishedAfter: publishedAfterDate,
   });
 
@@ -75,14 +85,52 @@ async function run() {
   ].join("\n");
 
   const stamp = format(new Date(), "yyyyMMdd_HHmmss");
-  const safe = (KEYWORD || "all").replace(/[\\/:*?"<>| ]+/g, "_");
-  const filename = `${safe}_${numberOfDays}days_${stamp}.csv`;
+  const safe = (keyword || "all").replace(/[\/:*?"<>| ]+/g, "_");
+  const filename = `${safe}_${periodDays}days_${stamp}.csv`;
 
   writeFileSync(`results/${filename}`, csv, "utf8");
   console.log(`✅  Saved → ${filename}`);
 }
 
-run().catch((err) => {
-  console.error(err);
+async function main() {
+  console.log(
+    `Starting batch processing for ${KEYWORDS_TO_PROCESS.length} keywords and ${PERIODS_IN_DAYS.length} periods.`
+  );
+  for (const kw of KEYWORDS_TO_PROCESS) {
+    for (const period of PERIODS_IN_DAYS) {
+      try {
+        console.log(`
+Processing: Keyword="${kw}", Period=${period} days`);
+        await run(kw, period);
+      } catch (err: any) {
+        console.error(
+          `
+❌ Error processing keyword "${kw}" for period ${period} days:`
+        );
+        if (err.response && err.response.data && err.response.data.error) {
+          // Log Google API specific error
+          console.error(
+            "API Error:",
+            JSON.stringify(err.response.data.error, null, 2)
+          );
+        } else if (err instanceof Error) {
+          console.error(`Error message: ${err.message}`);
+          // Stack trace can be very verbose in a loop, enable if deep debugging is needed.
+          // if (err.stack) { console.error(`Stack trace: ${err.stack}`); }
+        } else {
+          console.error("Unknown error:", err);
+        }
+        console.log(`Continuing to next task...`);
+      }
+    }
+  }
+  console.log("\nBatch processing finished.");
+}
+
+main().catch((err) => {
+  console.error("A critical error occurred in the main execution:", err);
+  if (err instanceof Error && err.stack) {
+    console.error(err.stack);
+  }
   process.exit(1);
 });
