@@ -9,6 +9,7 @@ import { writeFileSync } from "fs";
 import { format } from "date-fns";
 
 const KEYWORD = process.argv[2];
+const DAYS_AGO_ARG = process.argv[3];
 const youtube = google.youtube({
   version: "v3",
   auth: process.env["YT_API_KEY"],
@@ -20,8 +21,11 @@ const jp = (iso?: string) =>
 
 async function run() {
   // search.list
-  const ONE_YEAR_AGO = new Date(
-    Date.now() - 30 * 24 * 60 * 60 * 1000
+  const daysAgo = DAYS_AGO_ARG ? parseInt(DAYS_AGO_ARG, 10) : NaN;
+  const numberOfDays = !isNaN(daysAgo) && daysAgo > 0 ? daysAgo : 365;
+
+  const publishedAfterDate = new Date(
+    Date.now() - numberOfDays * 24 * 60 * 60 * 1000
   ).toISOString();
 
   const search = await youtube.search.list({
@@ -30,8 +34,8 @@ async function run() {
     type: ["video"],
     order: "viewCount",
     videoDuration: "short",
-    maxResults: 100,
-    publishedAfter: ONE_YEAR_AGO,
+    maxResults: 50,
+    publishedAfter: publishedAfterDate,
   });
 
   const ids = (search.data.items ?? [])
@@ -51,20 +55,30 @@ async function run() {
     .map((v) => ({
       title: (v.snippet?.title ?? "").replace(/"/g, '""'),
       views: v.statistics?.viewCount ?? "0",
+      likes: v.statistics?.likeCount ?? "0",
+      comments: v.statistics?.commentCount ?? "0",
+      channelTitle: v.snippet?.channelTitle ?? "",
+      description: (v.snippet?.description ?? "")
+        .replace(/"/g, '""')
+        .replace(/\n/g, " "),
+      tags: (v.snippet?.tags ?? []).join(", "),
       published: jp(v.snippet?.publishedAt ?? undefined),
       link: `https://youtube.com/shorts/${v.id}`,
     }));
 
   const csv = [
-    "Title,Views,Published,Link",
-    ...rows.map((r) => `"${r.title}",${r.views},${r.published},"${r.link}"`),
+    "Title,Views,Likes,Comments,Channel Title,Description,Tags,Published,Link",
+    ...rows.map(
+      (r) =>
+        `"${r.title}",${r.views},${r.likes},${r.comments},"${r.channelTitle}","${r.description}","${r.tags}",${r.published},"${r.link}"`
+    ),
   ].join("\n");
 
   const stamp = format(new Date(), "yyyyMMdd_HHmmss");
   const safe = (KEYWORD || "all").replace(/[\\/:*?"<>| ]+/g, "_");
   const filename = `${safe}_${stamp}.csv`;
 
-  writeFileSync(filename, csv, "utf8");
+  writeFileSync(`results-531/${filename}`, csv, "utf8");
   console.log(`✅  Saved → ${filename}`);
 }
 
