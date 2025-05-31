@@ -34,7 +34,7 @@ async function run() {
     type: ["video"],
     order: "viewCount",
     videoDuration: "short",
-    maxResults: 50,
+    maxResults: 25,
     publishedAfter: publishedAfterDate,
   });
 
@@ -54,6 +54,7 @@ async function run() {
     ) // ≤60s
     .map((v) => ({
       title: (v.snippet?.title ?? "").replace(/"/g, '""'),
+      link: `https://youtube.com/shorts/${v.id}`,
       views: v.statistics?.viewCount ?? "0",
       likes: v.statistics?.likeCount ?? "0",
       comments: v.statistics?.commentCount ?? "0",
@@ -63,22 +64,21 @@ async function run() {
         .replace(/\n/g, " "),
       tags: (v.snippet?.tags ?? []).join(", "),
       published: jp(v.snippet?.publishedAt ?? undefined),
-      link: `https://youtube.com/shorts/${v.id}`,
     }));
 
   const csv = [
-    "Title,Views,Likes,Comments,Channel Title,Description,Tags,Published,Link",
+    "Title,Link,Views,Likes,Comments,Channel Title,Description,Tags,Published",
     ...rows.map(
       (r) =>
-        `"${r.title}",${r.views},${r.likes},${r.comments},"${r.channelTitle}","${r.description}","${r.tags}",${r.published},"${r.link}"`
+        `"${r.title}","${r.link}",${r.views},${r.likes},${r.comments},"${r.channelTitle}","${r.description}","${r.tags}",${r.published}`
     ),
   ].join("\n");
 
   const stamp = format(new Date(), "yyyyMMdd_HHmmss");
   const safe = (KEYWORD || "all").replace(/[\\/:*?"<>| ]+/g, "_");
-  const filename = `${safe}_${stamp}.csv`;
+  const filename = `${safe}_${numberOfDays}days_${stamp}.csv`;
 
-  writeFileSync(`results-531/${filename}`, csv, "utf8");
+  writeFileSync(`results/${filename}`, csv, "utf8");
   console.log(`✅  Saved → ${filename}`);
 }
 
